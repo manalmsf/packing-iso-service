@@ -1,0 +1,20 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: packing-iso-service
+  mongodb:
+    uri: mongodb://localhost:27017/iso8583
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: admin
+    password: admin
+    virtual-host: /
+
+logging:
+  level:
+    com.example.packing_iso_service: DEBUG
+    org.springframework.amqp: DEBUG
+    org.springframework.amqp.rabbit.core.RabbitTemplate: DEBUG
