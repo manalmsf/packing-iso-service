@@ -1,6 +1,8 @@
 package com.example.packing_iso_service.controller;
+import org.apache.commons.codec.binary.Hex;
 
 import com.example.packing_iso_service.dto.PackingRequest;
+import com.example.packing_iso_service.dto.UnpackedMessageDTO;
 import com.example.packing_iso_service.model.PackedMessage;
 import com.example.packing_iso_service.model.UnpackedMessage;
 import com.example.packing_iso_service.repository.PackedMessageRepository;
@@ -9,13 +11,18 @@ import com.example.packing_iso_service.service.LogStreamService;
 import com.example.packing_iso_service.service.PackingService;
 import com.example.packing_iso_service.dto.UnpackRequest;
 import org.jpos.iso.ISOException;
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.GenericPackager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -23,6 +30,8 @@ import java.util.Map;
 @RequestMapping("/api/packing")
 public class PackingController {
 
+    @Autowired
+    private GenericPackager isoPackager;
 
     private final PackingService packingService;
     @Autowired
@@ -68,11 +77,41 @@ public class PackingController {
         return packedMessageRepository.findAll();
     }
     @PostMapping("/unpack")
-    public String unpackMessage(@RequestBody UnpackRequest request) throws Exception {
-        {
-            return packingService.unpack(request);
+    public ResponseEntity<?> unpack(@RequestBody UnpackRequest request) {
+        try {
+            String format = request.getFormat();
+            String message = request.getMessage();
 
-        }}
+            // Convertir en bytes selon le format
+            byte[] messageBytes;
+            if ("hex".equalsIgnoreCase(format)) {
+                messageBytes = Hex.decodeHex(message.toCharArray());
+            } else {
+                messageBytes = message.getBytes(StandardCharsets.UTF_8);
+            }
+
+            ISOMsg isoMsg = new ISOMsg();
+            isoMsg.setPackager(isoPackager); // ton GenericPackager déjà défini
+            isoMsg.unpack(messageBytes);
+
+            String mti = isoMsg.getMTI();
+            Map<String, String> fields = new HashMap<>();
+
+            for (int i = 2; i <= 128; i++) {
+                if (isoMsg.hasField(i)) {
+                    fields.put(String.valueOf(i), isoMsg.getString(i));
+                }
+            }
+
+            // Réponse propre
+            UnpackedMessageDTO unpacked = new UnpackedMessageDTO(mti, fields);
+            return ResponseEntity.ok(unpacked);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Erreur lors du dépacking");
+        }
+    }
 
 
     @GetMapping("/unpack/history")
