@@ -15,6 +15,8 @@ import org.jpos.iso.ISOUtil;
 import org.jpos.iso.packager.GenericPackager;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -72,6 +74,8 @@ public class PackingService {
         Map<String, Object> validationResult = null; // ✅ ici seulement
 
         PackedMessage msg = null;
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String username = (auth != null && auth.isAuthenticated()) ? auth.getName() : "system";
 
         try {
             logStreamService.sendLog("INFO", "📦 Début du traitement du message ISO");
@@ -133,7 +137,9 @@ public class PackingService {
         }
 
         // ✅ Validation via RabbitMQ
+
         ISOMessageRequest validationRequest = new ISOMessageRequest(mti, fields, false);
+        validationRequest.setUsername(username);
         String validationJson = objectMapper.writeValueAsString(validationRequest);
         rabbitTemplate.convertAndSend("iso.validation.request.queue", validationJson);
 
