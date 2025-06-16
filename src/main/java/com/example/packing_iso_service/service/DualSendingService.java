@@ -27,7 +27,7 @@ public class DualSendingService {
 
     public void sendViaRest(String mti, String ascii, String hex, Map<String, String> fields) {
         try {
-            String url = "https://webhook.site/746a9636-ddb4-4aef-9095-3f18d5ebfb36";
+            String url = "http://localhost:8095/api/external/receive";
 
             // Données à envoyer
             Map<String, Object> body = new LinkedHashMap<>();
@@ -57,7 +57,8 @@ public class DualSendingService {
 
     public void sendViaWebSocket(String mti, String ascii, String hex, Map<String, String> fields) {
         try {
-            String uri = "wss://echo.websocket.events"; // URL de test WebSocket
+            String uri = "ws://localhost:8095/ws/external";
+
 
             Map<String, Object> message = new LinkedHashMap<>();
             message.put("mti", mti);

@@ -71,9 +71,11 @@ public class PackingService {
         String mti = request.getMti();
         Map<String, String> fields = request.getFields();
         Map<String, Object> resultMap = new LinkedHashMap<>();
-        Map<String, Object> validationResult = null; // ✅ ici seulement
+        Map<String, Object> validationResult = null;
 
         PackedMessage msg = null;
+
+        // ✅ Récupération de l'utilisateur connecté
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String username = (auth != null && auth.isAuthenticated()) ? auth.getName() : "system";
 
@@ -129,15 +131,15 @@ public class PackingService {
             msg.setTimestamp(LocalDateTime.now());
             packedMessageRepository.save(msg);
 
-            logTransaction("PACK", mti, asciiString, "tester");
+            // ✅ Username dynamique ici
+            logTransaction("PACK", mti, asciiString, username);
 
         } catch (Exception e) {
             logStreamService.sendLog("ERROR", "❌ Erreur packing : " + e.getMessage());
             e.printStackTrace();
         }
 
-        // ✅ Validation via RabbitMQ
-
+        // ✅ Envoi en validation via RabbitMQ
         ISOMessageRequest validationRequest = new ISOMessageRequest(mti, fields, false);
         validationRequest.setUsername(username);
         String validationJson = objectMapper.writeValueAsString(validationRequest);
@@ -182,19 +184,23 @@ public class PackingService {
         fields.forEach(castedFields::put);
         resultMap.put("fields", castedFields);
 
-        if (request.isDualSending()) {
-            try {
-                dualSendingService.sendViaRest(mti, asciiString, hexString, fields);
-            } catch (Exception e) {
-                logStreamService.sendLog("ERROR", "❌ Dual sending échoué : " + e.getMessage());
-            }
+        try {
+            dualSendingService.sendViaRest(mti, asciiString, hexString, fields);
+            dualSendingService.sendViaWebSocket(mti, asciiString, hexString, fields);
+        } catch (Exception e) {
+            logStreamService.sendLog("ERROR", "❌ Dual sending échoué : " + e.getMessage());
         }
 
+
         return resultMap;
+
     }
 
     public String unpack(UnpackRequest request) {
         try {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            String username = (auth != null && auth.isAuthenticated()) ? auth.getName() : "system";
+
             ISOMsg isoMsg = new ISOMsg();
             isoMsg.setPackager(packager);
 
@@ -229,7 +235,7 @@ public class PackingService {
             msg.setTimestamp(LocalDateTime.now());
             unpackedMessageRepository.save(msg);
 
-            logTransaction("UNPACK", isoMsg.getMTI(), request.getMessage(), "tester");
+            logTransaction("UNPACK", isoMsg.getMTI(), request.getMessage(), username);
 
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(unpacked);
 
@@ -237,5 +243,4 @@ public class PackingService {
             e.printStackTrace();
             return "{\"error\": \"" + e.getMessage() + "\"}";
         }
-    }
-}
+    }}
