@@ -29,10 +29,13 @@ import java.util.UUID;
 
 @Service
 public class PackingService {
+
     @Autowired
     private LogStreamService logStreamService;
+
     @Autowired
     private PackedMessageRepository packedMessageRepository;
+
     @Autowired
     private DualSendingService dualSendingService;
 
@@ -44,6 +47,7 @@ public class PackingService {
 
     @Autowired
     private ObjectMapper objectMapper;
+
     Map<String, Object> validationResult = null;
     private final GenericPackager packager;
 
@@ -65,6 +69,7 @@ public class PackingService {
             System.err.println("❌ Erreur d’envoi du log à RabbitMQ : " + e.getMessage());
         }
     }
+
     public Map<String, Object> pack(PackingRequest request) throws IOException {
         String asciiString = "";
         String hexString = "";
@@ -75,7 +80,6 @@ public class PackingService {
 
         PackedMessage msg = null;
 
-        // ✅ Récupération de l'utilisateur connecté
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String username = (auth != null && auth.isAuthenticated()) ? auth.getName() : "system";
 
@@ -131,7 +135,6 @@ public class PackingService {
             msg.setTimestamp(LocalDateTime.now());
             packedMessageRepository.save(msg);
 
-            // ✅ Username dynamique ici
             logTransaction("PACK", mti, asciiString, username);
 
         } catch (Exception e) {
@@ -139,7 +142,6 @@ public class PackingService {
             e.printStackTrace();
         }
 
-        // ✅ Envoi en validation via RabbitMQ
         ISOMessageRequest validationRequest = new ISOMessageRequest(mti, fields, false);
         validationRequest.setUsername(username);
         String validationJson = objectMapper.writeValueAsString(validationRequest);
@@ -165,7 +167,6 @@ public class PackingService {
             logStreamService.sendLog("ERROR", "❌ Erreur réception validation : " + e.getMessage());
         }
 
-        // ✅ Réponse finale
         resultMap.put("status", "VALID");
         resultMap.put("asciiMessage", asciiString);
         resultMap.put("hexMessage", hexString);
@@ -182,18 +183,28 @@ public class PackingService {
 
         Map<String, Object> castedFields = new LinkedHashMap<>();
         fields.forEach(castedFields::put);
+
+        // ✅ Masquage du PAN dans la réponse
+        if (castedFields.containsKey("2")) {
+            castedFields.put("2", maskCardNumber(castedFields.get("2").toString()));
+        }
+
         resultMap.put("fields", castedFields);
 
+        // ✅ Masquage du PAN dans l'envoi externe
+        Map<String, String> safeFields = new LinkedHashMap<>(fields);
+        if (safeFields.containsKey("2")) {
+            safeFields.put("2", maskCardNumber(safeFields.get("2")));
+        }
+
         try {
-            dualSendingService.sendViaRest(mti, asciiString, hexString, fields);
-            dualSendingService.sendViaWebSocket(mti, asciiString, hexString, fields);
+            dualSendingService.sendViaRest(mti, asciiString, hexString, safeFields);
+            dualSendingService.sendViaWebSocket(mti, asciiString, hexString, safeFields);
         } catch (Exception e) {
             logStreamService.sendLog("ERROR", "❌ Dual sending échoué : " + e.getMessage());
         }
 
-
         return resultMap;
-
     }
 
     public String unpack(UnpackRequest request) {
@@ -243,4 +254,11 @@ public class PackingService {
             e.printStackTrace();
             return "{\"error\": \"" + e.getMessage() + "\"}";
         }
-    }}
+    }
+
+    // ✅ Masquage du PAN
+    private String maskCardNumber(String pan) {
+        if (pan == null || pan.length() < 10) return "****";
+        return pan.substring(0, 4) + "********" + pan.substring(pan.length() - 6);
+    }
+}
