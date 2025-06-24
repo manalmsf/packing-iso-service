@@ -142,6 +142,7 @@ public class PackingService {
             e.printStackTrace();
         }
 
+        // Envoi pour validation
         ISOMessageRequest validationRequest = new ISOMessageRequest(mti, fields, false);
         validationRequest.setUsername(username);
         String validationJson = objectMapper.writeValueAsString(validationRequest);
@@ -151,6 +152,22 @@ public class PackingService {
             String result = (String) rabbitTemplate.receiveAndConvert("iso.validation.result.queue", 5000);
             if (result != null) {
                 validationResult = objectMapper.readValue(result, Map.class);
+
+                // ✅ Masquage du PAN dans validationResult
+                if (validationResult.containsKey("fields")) {
+                    Object fieldsObj = validationResult.get("fields");
+                    if (fieldsObj instanceof Map<?, ?> rawMap) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> fieldsMap = (Map<String, Object>) rawMap;
+
+                        Object panValue = fieldsMap.get("2");
+                        if (panValue instanceof String pan && pan.length() >= 10) {
+                            fieldsMap.put("2", maskCardNumber(pan));
+                        }
+                    }
+                }
+
+
                 if ("INVALID".equals(validationResult.get("validationStatus"))) {
                     Map<String, Object> errorMap = new LinkedHashMap<>();
                     errorMap.put("message", "Validation failed");
@@ -172,6 +189,15 @@ public class PackingService {
         resultMap.put("hexMessage", hexString);
         resultMap.put("id", msg != null ? msg.getId() : null);
 
+        // ✅ Masquage du PAN dans resultMap['fields']
+        Map<String, Object> castedFields = new LinkedHashMap<>();
+        fields.forEach(castedFields::put);
+        if (castedFields.containsKey("2")) {
+            castedFields.put("2", maskCardNumber(castedFields.get("2").toString()));
+        }
+        resultMap.put("fields", castedFields);
+
+        // ✅ Métadonnées
         Map<String, Object> metadata = new LinkedHashMap<>();
         if (validationResult != null && validationResult.get("metadata") instanceof Map) {
             Map<String, Object> metadataFromValidation = (Map<String, Object>) validationResult.get("metadata");
@@ -181,17 +207,7 @@ public class PackingService {
         }
         resultMap.put("metadata", metadata);
 
-        Map<String, Object> castedFields = new LinkedHashMap<>();
-        fields.forEach(castedFields::put);
-
-        // ✅ Masquage du PAN dans la réponse
-        if (castedFields.containsKey("2")) {
-            castedFields.put("2", maskCardNumber(castedFields.get("2").toString()));
-        }
-
-        resultMap.put("fields", castedFields);
-
-        // ✅ Masquage du PAN dans l'envoi externe
+        // ✅ Masquage du PAN dans les envois externes (REST/WebSocket)
         Map<String, String> safeFields = new LinkedHashMap<>(fields);
         if (safeFields.containsKey("2")) {
             safeFields.put("2", maskCardNumber(safeFields.get("2")));
@@ -206,6 +222,7 @@ public class PackingService {
 
         return resultMap;
     }
+
 
     public String unpack(UnpackRequest request) {
         try {
@@ -234,9 +251,14 @@ public class PackingService {
             unpacked.put("MTI", isoMsg.getMTI());
             for (int i = 1; i <= 128; i++) {
                 if (isoMsg.hasField(i)) {
-                    unpacked.put("Field " + i, isoMsg.getString(i));
+                    String value = isoMsg.getString(i);
+                    if (i == 2 && value.length() >= 10) {
+                        value = maskCardNumber(value);
+                    }
+                    unpacked.put("Field " + i, value);
                 }
             }
+
 
             UnpackedMessage msg = new UnpackedMessage();
             msg.setOriginalMessage(request.getMessage());
